@@ -1,17 +1,19 @@
 
 #include <Geode/Geode.hpp>
 #include <Geode/modify/LevelEditorLayer.hpp>
+
 #include "GeneratorCore.hpp"
 
 #include <algorithm>
+#include <cstdint>
+#include <cstdlib>
 #include <string>
-#include <utility>
 #include <vector>
 
 using namespace geode::prelude;
 
 namespace {
-    constexpr int MAX_OBJECTS = 40000;
+    constexpr std::size_t MAX_OBJECTS = 40000;
 
     constexpr const char* DIFFICULTIES[] = {
         "Easy", "Normal", "Hard", "Harder", "Insane", "Demon",
@@ -19,13 +21,7 @@ namespace {
         "Insane Demon", "Extreme Demon"
     };
 
-    int g_bpm = 120;
-    int g_length = 60;
     int g_difficulty = 0;
-
-    float difficultyValue() {
-        return static_cast<float>(g_difficulty) / 10.0f;
-    }
 }
 
 class FGEditorOverlay : public CCLayer {
@@ -43,13 +39,15 @@ public:
     }
 
     bool init(LevelEditorLayer* editor) {
-        if (!CCLayer::init()) return false;
+        if (!CCLayer::init())
+            return false;
 
         m_editor = editor;
 
         auto size = CCDirector::sharedDirector()->getWinSize();
+
         auto menu = CCMenu::create();
-        menu->setPosition({0, 0});
+        menu->setPosition({0.f, 0.f});
 
         auto sprite = ButtonSprite::create(
             "FG", 40, true, "bigFont.fnt",
@@ -73,7 +71,9 @@ public:
     }
 
     void onOpen(CCObject*) {
-        if (getChildByID("fg-panel"_spr)) return;
+        if (getChildByID("fg-panel"_spr))
+            return;
+
         showPanel();
     }
 
@@ -82,43 +82,54 @@ public:
             panel->removeFromParentAndCleanup(true);
     }
 
-    void onBPM(CCObject*) {
-        g_bpm += 10;
-        if (g_bpm > 240) g_bpm = 60;
-        refreshPanel();
-    }
-
-    void onLength(CCObject*) {
-        g_length += 15;
-        if (g_length > 180) g_length = 30;
-        refreshPanel();
-    }
-
     void onDifficulty(CCObject*) {
         g_difficulty = (g_difficulty + 1) % 11;
         refreshPanel();
     }
 
     void onCreate(CCObject*) {
-        if (m_generating || !m_editor) return;
+        if (m_generating || !m_editor)
+            return;
+
+        if (!m_bpmInput || !m_durationInput)
+            return;
+
+        const char* bpmText = m_bpmInput->getString();
+        const char* durationText = m_durationInput->getString();
+
+        if (!bpmText || !durationText ||
+            bpmText[0] == '\0' || durationText[0] == '\0') {
+            showError("BPM and duration cannot be empty.");
+            return;
+        }
+
+        char* bpmEnd = nullptr;
+        char* durationEnd = nullptr;
+
+        unsigned long long bpm = std::strtoull(bpmText, &bpmEnd, 10);
+        float duration = std::strtof(durationText, &durationEnd);
+
+        if (bpmEnd == bpmText || *bpmEnd != '\0' ||
+            durationEnd == durationText || *durationEnd != '\0' ||
+            bpm == 0 || duration <= 0.f) {
+            showError("Enter valid positive numbers.");
+            return;
+        }
 
         fg::GeneratorSettings settings;
 
-        settings.length = static_cast<float>(g_length) * 100.f;
+        settings.length = duration * 100.f;
         settings.density = 0.55f;
-        settings.difficulty = difficultyValue();
-        settings.bpm = static_cast<std::uint32_t>(g_bpm);
+        settings.difficulty =
+            static_cast<float>(g_difficulty) / 10.f;
+        settings.bpm = static_cast<std::uint32_t>(bpm);
         settings.maxObjects = MAX_OBJECTS;
 
-        fg::GeneratorCore core;
-        auto result = core.generate(settings);
+        fg::GeneratorCore generator;
+        auto result = generator.generate(settings);
 
         if (!result.validation.passed) {
-            FLAlertLayer::create(
-                "FlexibleGenerator",
-                "Generation validation failed.",
-                "OK"
-            )->show();
+            showError("Generation validation failed.");
             return;
         }
 
@@ -127,7 +138,15 @@ public:
         m_generating = true;
 
         onClose(nullptr);
+        showLoading();
 
+        schedule(
+            schedule_selector(FGEditorOverlay::placeObjects),
+            0.01f
+        );
+    }
+
+    void showLoading() {
         auto size = CCDirector::sharedDirector()->getWinSize();
 
         auto loading = CCLayerColor::create({0, 0, 0, 225});
@@ -139,18 +158,14 @@ public:
         );
 
         label->setPosition({
-            size.width / 2,
-            size.height / 2
+            size.width / 2.f,
+            size.height / 2.f
         });
 
         label->setScale(0.65f);
         loading->addChild(label);
-        addChild(loading, 300);
 
-        schedule(
-            schedule_selector(FGEditorOverlay::placeObjects),
-            0.01f
-        );
+        addChild(loading, 300);
     }
 
     void placeObjects(float) {
@@ -161,7 +176,7 @@ public:
 
         constexpr std::size_t BATCH_SIZE = 250;
 
-        const auto end = std::min(
+        const std::size_t end = std::min(
             m_nextObject + BATCH_SIZE,
             m_objects.size()
         );
@@ -169,29 +184,8 @@ public:
         for (; m_nextObject < end; ++m_nextObject) {
             const auto& item = m_objects[m_nextObject];
 
-            int objectID = 8;
-
-            switch (item.kind) {
-                case fg::ObjectKind::Spike:
-                    objectID = 8;
-                    break;
-
-                case fg::ObjectKind::Block:
-                    objectID = 1;
-                    break;
-
-                case fg::ObjectKind::SmallSpike:
-                    objectID = 39;
-                    break;
-
-                case fg::ObjectKind::Saw:
-                    // fallback sementara
-                    objectID = 8;
-                    break;
-            }
-
             auto object = m_editor->createObject(
-                objectID,
+                item.objectID,
                 {item.x, item.y},
                 true
             );
@@ -214,8 +208,8 @@ public:
         if (auto loading = getChildByID("fg-loading"_spr))
             loading->removeFromParentAndCleanup(true);
 
-        auto message =
-            "Generation finished. Objects placed: " +
+        std::string message =
+            "Generation finished!\nObjects attempted: " +
             std::to_string(m_nextObject);
 
         FLAlertLayer::create(
@@ -228,10 +222,21 @@ public:
 private:
     LevelEditorLayer* m_editor = nullptr;
 
+    CCTextInputNode* m_bpmInput = nullptr;
+    CCTextInputNode* m_durationInput = nullptr;
+
     std::vector<fg::GeneratedObject> m_objects;
 
     std::size_t m_nextObject = 0;
     bool m_generating = false;
+
+    void showError(const char* message) {
+        FLAlertLayer::create(
+            "FlexibleGenerator",
+            message,
+            "OK"
+        )->show();
+    }
 
     void refreshPanel() {
         onClose(nullptr);
@@ -242,60 +247,63 @@ private:
         auto size = CCDirector::sharedDirector()->getWinSize();
 
         auto panel = CCLayerColor::create({12, 12, 12, 248});
-
-        panel->setContentSize({360.f, 330.f});
+        panel->setContentSize({380.f, 350.f});
 
         panel->setPosition({
-            (size.width - 360.f) / 2.f,
-            (size.height - 330.f) / 2.f
+            (size.width - 380.f) / 2.f,
+            (size.height - 350.f) / 2.f
         });
 
         panel->setID("fg-panel"_spr);
 
         auto title = CCLabelBMFont::create(
-            "FlexibleGenerator (BETA)",
-            "bigFont.fnt"
+            "FlexibleGenerator (BETA)", "bigFont.fnt"
         );
 
         title->setScale(0.55f);
-        title->setPosition({180.f, 300.f});
+        title->setPosition({190.f, 320.f});
         panel->addChild(title);
 
         auto maxLabel = CCLabelBMFont::create(
-            "MAX OBJECTS: 40,000",
-            "bigFont.fnt"
+            "MAX OBJECTS: 40,000", "bigFont.fnt"
         );
 
         maxLabel->setScale(0.48f);
-        maxLabel->setPosition({180.f, 263.f});
+        maxLabel->setPosition({190.f, 285.f});
         panel->addChild(maxLabel);
 
+        auto bpmLabel = CCLabelBMFont::create(
+            "BPM", "bigFont.fnt"
+        );
+        bpmLabel->setScale(0.5f);
+        bpmLabel->setPosition({90.f, 235.f});
+        panel->addChild(bpmLabel);
+
+        m_bpmInput = CCTextInputNode::create(
+            140.f, 30.f, "Enter BPM", "bigFont.fnt", 16
+        );
+        m_bpmInput->setPosition({245.f, 235.f});
+        m_bpmInput->setString("120");
+        m_bpmInput->setAllowedChars("0123456789");
+        panel->addChild(m_bpmInput);
+
+        auto durationLabel = CCLabelBMFont::create(
+            "DURATION (SEC)", "bigFont.fnt"
+        );
+        durationLabel->setScale(0.42f);
+        durationLabel->setPosition({90.f, 185.f});
+        panel->addChild(durationLabel);
+
+        m_durationInput = CCTextInputNode::create(
+            140.f, 30.f, "Enter seconds", "bigFont.fnt", 16
+        );
+        m_durationInput->setPosition({245.f, 185.f});
+        m_durationInput->setString("60");
+        m_durationInput->setAllowedChars("0123456789.");
+        panel->addChild(m_durationInput);
+
         auto menu = CCMenu::create();
-        menu->setPosition({0, 0});
-
-        auto bpmSprite = ButtonSprite::create(
-            ("BPM: " + std::to_string(g_bpm)).c_str()
-        );
-
-        auto bpmButton = CCMenuItemSpriteExtra::create(
-            bpmSprite, this,
-            menu_selector(FGEditorOverlay::onBPM)
-        );
-
-        bpmButton->setPosition({180.f, 220.f});
-        menu->addChild(bpmButton);
-
-        auto lengthSprite = ButtonSprite::create(
-            ("Length: " + std::to_string(g_length) + "s").c_str()
-        );
-
-        auto lengthButton = CCMenuItemSpriteExtra::create(
-            lengthSprite, this,
-            menu_selector(FGEditorOverlay::onLength)
-        );
-
-        lengthButton->setPosition({180.f, 170.f});
-        menu->addChild(lengthButton);
+        menu->setPosition({0.f, 0.f});
 
         auto diffSprite = ButtonSprite::create(
             (std::string("Difficulty: ") +
@@ -307,7 +315,7 @@ private:
             menu_selector(FGEditorOverlay::onDifficulty)
         );
 
-        diffButton->setPosition({180.f, 120.f});
+        diffButton->setPosition({190.f, 125.f});
         menu->addChild(diffButton);
 
         auto createSprite = ButtonSprite::create(
@@ -319,7 +327,7 @@ private:
             menu_selector(FGEditorOverlay::onCreate)
         );
 
-        createButton->setPosition({180.f, 65.f});
+        createButton->setPosition({190.f, 70.f});
         menu->addChild(createButton);
 
         auto closeSprite = ButtonSprite::create("X");
@@ -329,7 +337,7 @@ private:
             menu_selector(FGEditorOverlay::onClose)
         );
 
-        closeButton->setPosition({330.f, 305.f});
+        closeButton->setPosition({350.f, 325.f});
         menu->addChild(closeButton);
 
         panel->addChild(menu);
@@ -342,8 +350,10 @@ class $modify(FlexibleGeneratorEditor, LevelEditorLayer) {
         if (!LevelEditorLayer::init(level, noUI))
             return false;
 
-        if (auto overlay = FGEditorOverlay::create(this))
-            this->addChild(overlay, 1000);
+        auto overlay = FGEditorOverlay::create(this);
+
+        if (overlay)
+            addChild(overlay, 1000);
 
         return true;
     }
