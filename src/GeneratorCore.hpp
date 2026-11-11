@@ -6,13 +6,12 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <string>
 #include <vector>
 
 namespace fg {
 
     struct GeneratorSettings {
-        float length = 6000.0f;
+        float length = 6000.f;
         float density = 0.55f;
         float difficulty = 0.45f;
 
