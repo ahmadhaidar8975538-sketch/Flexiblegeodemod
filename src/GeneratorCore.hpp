@@ -1,19 +1,25 @@
+
 #pragma once
 
 #include "PatternEngine.hpp"
 #include "Validator.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace fg {
+
     struct GeneratorSettings {
-        float length = 1200.0f;
-        float density = 0.55f;       // 0.0 .. 1.0
-        float difficulty = 0.45f;    // 0.0 .. 1.0
+        float length = 6000.0f;
+        float density = 0.55f;
+        float difficulty = 0.45f;
+
+        std::uint32_t bpm = 120;
         std::uint32_t seed = 12345;
-        std::size_t maxObjects = 180;
+
+        std::size_t maxObjects = 40000;
     };
 
     struct GenerationResult {
@@ -24,6 +30,9 @@ namespace fg {
 
     class GeneratorCore {
     public:
-        GenerationResult generate(const GeneratorSettings& settings) const;
+        GenerationResult generate(
+            const GeneratorSettings& settings
+        ) const;
     };
+
 }
