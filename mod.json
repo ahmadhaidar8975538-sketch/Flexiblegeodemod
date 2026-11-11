@@ -1,0 +1,14 @@
+{
+  "geode": "$GEODE_VERSION",
+  "gd": {
+    "win": "2.2081",
+    "android": "2.2081",
+    "mac": "2.2081",
+    "ios": "2.2081"
+  },
+  "id": "darzxxww.flexible-generator",
+  "name": "Flexible Generator",
+  "version": "v0.1.0",
+  "developer": "Darzxxww",
+  "description": "A flexible hybrid layout-generation prototype for the Geometry Dash editor."
+}
